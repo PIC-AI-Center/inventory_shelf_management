@@ -1,0 +1,33 @@
+# API
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Async task queue
+celery>=5.4.0
+redis>=5.0.0
+
+# HTTP client (for Triton HTTP + internal use)
+requests>=2.32.0
+
+# Triton client
+tritonclient[grpc]>=2.44.0
+tritonclient[http]>=2.44.0
+
+# Image processing
+Pillow>=10.0.0
+numpy>=1.26.0
+
+# Database (optional)
+psycopg2-binary>=2.9.9
+
+# Cloud storage (optional — install only what you need)
+google-cloud-storage>=2.16.0
+google-cloud-translate>=3.15.0
+
+# GPU preprocessing (requires CUDA 12 environment — comment out for CPU-only)
+# Install the wheel that matches your CUDA version:
+#   CUDA 11.x: nvidia-dali-cuda110
+#   CUDA 12.x: nvidia-dali-cuda120
+nvidia-dali-cuda120>=1.38.0

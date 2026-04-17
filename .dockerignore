@@ -1,0 +1,25 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.log
+
+# Session data & uploads (mounted as a volume at runtime)
+request_case/
+
+# Local planogram images (source CSVs are included, generated images are not)
+planograms/*.jpg
+
+# IDE
+.vscode/
+.idea/

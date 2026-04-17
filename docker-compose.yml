@@ -1,0 +1,121 @@
+version: "3.9"
+
+services:
+
+  model-downloader:
+    image: google/cloud-sdk:latest
+    environment:
+      - MODEL_ARTIFACT_MOUNT_DIRECTORY=/model-artifacts
+      - MODEL_CACHE_DIRECTORY=/models-cache
+    volumes:
+      - ~/.config/gcloud:/root/.config/gcloud
+      - triton-cache:/models-cache
+      - model-artifacts:/model-artifacts
+    command: sh -euxc "
+      gsutil -m rsync -r -d -c gs://${CLOUD_STORAGE_BUCKET}/triton/model_artifacts /model-artifacts/ &&
+      gsutil -m rsync -r -d -c gs://${CLOUD_STORAGE_BUCKET}/triton/models_vision /models-cache/
+      "
+
+  redis:
+    image: redis:7.0
+    ports:
+      - "6385:6379"
+    command: redis-server --requirepass "${REDIS_PASSWORD}"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    networks:
+      - triton-network
+    restart: always
+
+  triton-server:
+    image: nvcr.io/nvidia/tritonserver:24.11-py3
+    runtime: nvidia
+    depends_on:
+      model-downloader:
+        condition: service_completed_successfully
+    ports:
+      - "6063:8000"   # HTTP
+      - "6064:8001"   # gRPC
+      - "6065:8002"   # Metrics
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./triton:/models
+      - triton-cache:/models-cache
+    command: >
+      tritonserver
+      --model-repository=/models
+      --exit-on-error=false
+      --cuda-memory-pool-byte-size=0:67108864
+      --model-load-thread-count=1
+    networks:
+      - triton-network
+    restart: always
+
+  inventory-fastapi-server:
+    depends_on:
+      - triton-server
+      - redis
+    image: ${DOCKER_REGISTRY}/inventory-shelf-management/api-backend-core:${IMAGE_TAG:-1.0}
+    env_file:
+      - .env
+    runtime: nvidia
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags:
+        - ${DOCKER_REGISTRY}/inventory-shelf-management/api-backend-core:${IMAGE_TAG:-1.0}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+    ports:
+      - "8082:8082"   # FastAPI
+      - "8715:8715"   # Flower
+    volumes:
+      - .:/app
+      - ~/.config/gcloud:/root/.config/gcloud
+    networks:
+      - triton-network
+    entrypoint: []
+    command: sh -c "uvicorn main:app --host 0.0.0.0 --port $$FASTAPI_PORT --workers $$FASTAPI_WORKERS & \
+             celery -A celery_app worker --loglevel=info & \
+             celery -A celery_app beat --loglevel=info --pidfile= --schedule=/tmp/celerybeat-schedule & \
+             celery -A celery_app flower --port=8715 & \
+             wait"
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: app_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - triton-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  triton-network:
+    driver: bridge
+
+volumes:
+  triton-cache:
+  model-artifacts:
+  postgres_data:
